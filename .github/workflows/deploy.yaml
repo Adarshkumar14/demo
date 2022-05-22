@@ -1,0 +1,49 @@
+name: deploy-pipeline
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  filters:
+    runs-on: ubuntu-latest
+    # Set job outputs to values from filter step
+    outputs:
+      server-config: ${{ steps.filter.outputs.server-config }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      # For pull requests it's not necessary to checkout the code
+      - uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+            server-config:
+              - 'chaos-automation/**'
+
+  server-config:
+    runs-on: ubuntu-latest
+    needs: filters
+    if: needs.filters.outputs.server-config == 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.EKS_REGION }}
+
+      - name: Configure EKS cluster
+        run: aws eks --region ${{ secrets.EKS_REGION }} update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }}
+
+      - uses: azure/setup-kubectl@v1
+        id: install
+
+      - name: Get nodes
+        run: kubectl get nodes
+ 
+      - name: Configure-server
+        run: kubectl apply -f chaos-automation/nginx-deploy-service.yaml
