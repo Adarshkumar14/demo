@@ -39,11 +39,11 @@ jobs:
       - name: Trigger the  Chaos Workflow
         shell: bash
         run: |
-          export WORKFLOW_NAME=preprod-chaostesting-${GITHUB_SHA::8}
+          export WORKFLOW_NAME=demo-chaostesting-${GITHUB_SHA::8}
           echo ${{ env.WORKFLOW_NAME }}
           export TOKEN=${{ env.TOKEN }}
-          chmod +x /chaos-automation/workflow.sh
-          workflow_data=$(./chaos-automation/workflow.sh)
+          chmod +x workflow.sh
+          workflow_data=$(./workflow.sh)
           echo $workflow_data
           workflow_id=`echo $workflow_data | jq -r '.data.createChaosWorkFlow.workflow_id'`
           echo $workflow_id
