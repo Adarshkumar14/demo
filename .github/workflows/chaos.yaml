@@ -1,7 +1,7 @@
 name: Chaostest-pipeline
 on:
   workflow_run:
-    workflows: ["push-pipeline"]
+    workflows: ["deploy-pipeline"]
     branches: [main]
     types: [completed]
 
@@ -42,8 +42,8 @@ jobs:
           export WORKFLOW_NAME=preprod-chaostesting-${GITHUB_SHA::8}
           echo ${{ env.WORKFLOW_NAME }}
           export TOKEN=${{ env.TOKEN }}
-          chmod +x workflow.sh
-          workflow_data=$(./workflow.sh)
+          chmod +x /chaos-automation/workflow.sh
+          workflow_data=$(./chaos-automation/workflow.sh)
           echo $workflow_data
           workflow_id=`echo $workflow_data | jq -r '.data.createChaosWorkFlow.workflow_id'`
           echo $workflow_id
