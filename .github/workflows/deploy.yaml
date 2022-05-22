@@ -46,4 +46,4 @@ jobs:
         run: kubectl get nodes
  
       - name: Configure-server
-        run: kubectl apply -f chaos-automation/nginx-deploy-service.yaml
+        run: kubectl apply -f /chaos-automation/ngix-deploy-service.yaml
