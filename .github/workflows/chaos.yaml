@@ -1,0 +1,78 @@
+name: Chaostest-pipeline
+on:
+  workflow_run:
+    workflows: ["push-pipeline"]
+    branches: [main]
+    types: [completed]
+
+jobs:
+  ChaosTesting:
+    runs-on: ubuntu-latest
+    steps:
+      - name: login to clc
+        shell: bash
+        run: |
+          PAYLOAD=`echo '{"email": "${{ secrets.CHAOS_EMAIL }}", "password": "${{ secrets.CHAOS_PASSWORD }}"}'`
+          RESPONSE=`curl -s --request POST -H "Content-Type:application/json" https://cloud.chaosnative.com/auth/signin --data  "${PAYLOAD}"`
+          token=`echo $RESPONSE | jq -r '.access_token'`           
+          echo "TOKEN=$token" >> $GITHUB_ENV
+      - name: cluster_info
+        shell: bash    
+        run: |
+          echo ${{ env.TOKEN }} | sed 's/./& /g' 
+          cluster_info=`curl --location --request POST 'https://cloud.chaosnative.com/api/query'  -H "Authorization: ${{ env.TOKEN }}" -H 'Content-Type: application/json' --data-raw '{"query":"{\n  getCluster(project_id:\"'${{ secrets.PROJECT_ID }}'\"){\n    cluster_id\n    agent_namespace\n  }\n}","variables":{}}'`
+          echo $cluster_info
+          TotalClusters=`echo $cluster_info | jq -r '.data.getCluster | length'`
+          echo ${TotalClusters}
+          cluster_id=""
+          for ((i=0; i<${TotalClusters}; i++))
+          do
+          ns=`echo $cluster_info | jq -r '.data.getCluster['$i'].agent_namespace'`
+          if [[ $ns = "demo" ]];then
+            cluster_id=`echo $cluster_info | jq -r '.data.getCluster['$i'].cluster_id'`
+            break
+          fi
+          done
+          echo $cluster_id
+          echo "CLUSTER_ID=$cluster_id" >> $GITHUB_ENV
+      - uses: actions/checkout@v2
+      - name: Trigger the  Chaos Workflow
+        shell: bash
+        run: |
+          export WORKFLOW_NAME=preprod-chaostesting-${GITHUB_SHA::8}
+          echo ${{ env.WORKFLOW_NAME }}
+          export TOKEN=${{ env.TOKEN }}
+          chmod +x workflow.sh
+          workflow_data=$(./workflow.sh)
+          echo $workflow_data
+          workflow_id=`echo $workflow_data | jq -r '.data.createChaosWorkFlow.workflow_id'`
+          echo $workflow_id
+          echo "WORKFLOW_ID=$workflow_id" >> $GITHUB_ENV    
+        env:
+            CLUSTER_ID: "${{ env.CLUSTER_ID }}"
+            PROJECT_ID: "${{ secrets.PROJECT_ID }}"
+      - name: Waiting for the completion of the workflow
+        shell: bash
+        run: |
+          sleep 5
+          total_no_of_workflow_runs=$(curl --location --request POST 'https://cloud.chaosnative.com/api/query' -H "Authorization: ${{ env.TOKEN }}" -H 'Content-Type: application/json' --data-raw '{"query":"query getWorkflowRuns($workflowRunsInput: GetWorkflowRunsInput!){\n getWorkflowRuns(workflowRunsInput: $workflowRunsInput){\n total_no_of_workflow_runs\n }\n}","variables":{"workflowRunsInput":{"project_id":"'${{ secrets.PROJECT_ID }}'","workflow_ids":["'${{ env.WORKFLOW_ID }}'"],"filter":{"workflow_status":"Running"}}}}')
+          n=`echo $total_no_of_workflow_runs | jq -r '.data.getWorkflowRuns.total_no_of_workflow_runs'`
+          while [ $n == 1 ]
+          do
+            sleep 10
+            total_no_of_workflow_runs=$(curl --location --request POST 'https://cloud.chaosnative.com/api/query' -H "Authorization: ${{ env.TOKEN }}" -H 'Content-Type: application/json' --data-raw '{"query":"query getWorkflowRuns($workflowRunsInput: GetWorkflowRunsInput!){\n getWorkflowRuns(workflowRunsInput: $workflowRunsInput){\n total_no_of_workflow_runs\n }\n}","variables":{"workflowRunsInput":{"project_id":"'${{ secrets.PROJECT_ID }}'","workflow_ids":["'${{ env.WORKFLOW_ID }}'"],"filter":{"workflow_status":"Running"}}}}')
+            n=`echo $total_no_of_workflow_runs | jq -r '.data.getWorkflowRuns.total_no_of_workflow_runs'`
+            echo "Workflow is in running state"
+          done
+          echo "============================================================"
+          echo "Workflow is Completed!"
+          echo "============================================================"
+      - name: Chaos Result
+        shell: bash
+        run: |
+          sleep 20
+          r_score=$(curl --location --request POST 'https://cloud.chaosnative.com/api/query' -H "Authorization: ${{ env.TOKEN }}" -H 'Content-Type: application/json' --data-raw '{"query":"query getWorkflowRunStats($workflowRunStatsRequest: WorkflowRunStatsRequest!){\n getWorkflowRunStats(workflowRunStatsRequest: $workflowRunStatsRequest){\n average_resiliency_score \n}\n}","variables":{"workflowRunStatsRequest":{"project_id":"'${{ secrets.PROJECT_ID }}'","workflow_ids":["'${{ env.WORKFLOW_ID }}'"]}}}')
+          resilience_score=`echo $r_score | jq -r '.data.getWorkflowRunStats.average_resiliency_score'`             
+          echo "++++++++++++++++++++++++++++++++++++++++++"
+          echo "The Resilience score is $resilience_score"
+          echo "++++++++++++++++++++++++++++++++++++++++++"
